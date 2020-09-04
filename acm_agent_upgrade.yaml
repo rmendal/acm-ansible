@@ -1,0 +1,210 @@
+---
+- name: Detect certificates
+  hosts: all
+  gather_facts: False
+  tasks:
+  - name: stat certificate
+    stat:
+      path: "/etc/foo/ssl/certs/{{ inventory_hostname }}.pem"
+    register: cert
+
+- name: Request cert from aws acm
+  hosts: all
+  gather_facts: False
+  vars:
+    secret_access_key: "{{ lookup('env', 'AWS_SECRET_ACCESS_KEY') }}"
+    key_id: "{{ lookup('env', 'AWS_ACCESS_KEY_ID') }}"
+  become: yes
+  tasks:
+  - name: Request the certs
+    aws_acm_request:
+      Domain_Name: "{{ inventory_hostname }}"
+      AWS_SECRET_ACCESS_KEY: "{{ secret_access_key }}"
+      AWS_DEFAULT_REGION: "us-west-2"
+      AWS_ACCESS_KEY_ID: "{{ key_id }}"
+    when: cert.stat.exists == False
+    delegate_to: localhost
+
+- name: Stop active puppet runs
+  hosts: all
+  gather_facts: False
+  become: yes
+  tasks:
+    - name: Stop puppet service
+      service:
+        name: puppet
+        state: stopped
+    - name: Get pid
+      shell: "pgrep puppet"
+      register: pid
+      ignore_errors: True
+    - name: Wait for puppet proc to exit
+      wait_for:
+        path: "/proc/{{ pid.stdout_lines[0] }}/status"
+        state: absent
+      when: "pid.rc == 0"
+
+- name: Create remote ssl dirs
+  hosts: all
+  gather_facts: False
+  vars:
+    ssl_path: "/etc/foo/ssl"
+  become: yes
+  tasks:
+    - name: mkdir private_keys
+      file:
+        path: "{{ ssl_path }}/private_keys"
+        state: directory
+      when: cert.stat.exists == False
+    - name: mkdir certs
+      file:
+        path: "{{ ssl_path }}/certs"
+        state: directory
+      when: cert.stat.exists == False
+
+- name: Copy certs to remote host
+  hosts: all
+  gather_facts: False
+  vars:
+    path: "/etc/barracuda/ssl"
+  become: yes
+  tasks:
+    - name: Copy private key
+      copy:
+        src: "{{ inventory_hostname }}.key"
+        dest: "{{ path }}/private_keys/{{ inventory_hostname }}.key"
+        owner: root
+        group: root
+        mode: '0644'
+      when: cert.stat.exists == False
+    - name: Copy chain
+      copy:
+        src: "{{ inventory_hostname }}-ca.pem"
+        dest: "{{ path }}/certs/ca.pem"
+        owner: root
+        group: root
+        mode: '0644'
+      when: cert.stat.exists == False
+    - name: Copy chain for trust
+      copy:
+        src: "{{ inventory_hostname }}-ca.pem"
+        dest: "/etc/pki/ca-trust/source/anchors/ca.pem"
+        owner: root
+        group: root
+        mode: '0644'
+      when: cert.stat.exists == False
+    - name: Copy cert
+      copy:
+        src: "{{ inventory_hostname }}.pem"
+        dest: "{{ path }}/certs/{{ inventory_hostname }}.pem"
+        owner: root
+        group: root
+        mode: '0644'
+      when: cert.stat.exists == False
+
+- name: Handle private key conversion, perms, trust chain update and cleanup
+  hosts: all
+  gather_facts: False
+  vars:
+    passphrase: "{{ lookup('file', '{{ inventory_hostname }}-pass.txt') }}"
+    ssl_path: "/etc/foo/ssl"
+  become: yes
+  tasks:
+    - name: Convert key to pem
+      command: openssl rsa -passin pass:{{passphrase}} -in {{ ssl_path }}/private_keys/{{ inventory_hostname }}.key -out {{ ssl_path }}/private_keys/{{ inventory_hostname }}.pem
+      when: cert.stat.exists == False
+    - name: Fix key perms
+      file:
+        path: "{{ ssl_path }}/private_keys/{{ inventory_hostname }}.pem"
+        mode: '0640'
+      when: cert.stat.exists == False
+    - name: Delete remote key file
+      file:
+        path: "{{ ssl_path }}/private_keys/{{ inventory_hostname }}.key"
+        state: absent
+      when: cert.stat.exists == False
+    - name: Update trust chain
+      command: update-ca-trust
+      when: cert.stat.exists == False
+
+- name: Handle local cert/key cleanup
+  hosts: all
+  gather_facts: False
+  become: yes
+  tasks:
+    - name: Delete local files
+      file:
+        path: "{{ item }}"
+        state: absent
+      with_items:
+      - "{{ inventory_hostname }}.key"
+      - "{{ inventory_hostname }}.pem"
+      - "{{ inventory_hostname }}-ca.pem"
+      - "{{ inventory_hostname }}-pass.txt"
+      delegate_to: localhost
+
+- name: Puppet Agent Upgrade, Add Puppet 6 Repo, Copy New Puppet Conf
+  hosts: all
+  gather_facts: False
+  become: yes
+  tasks:
+    - name: Add Puppet 6 Repo
+      yum_repository:
+        name: artifactory-bnco-centos-7-puppet6
+        description: Puppet 6 Artifactory repo
+        baseurl: URL-to-repo
+        gpgkey: URL-to-repo-GPG
+        metadata_expire: '900'
+        gpgcheck: yes
+
+    - name: Install Puppet Agent v6
+      yum:
+        name: puppet-agent
+        state: latest
+
+    - name: Change server in puppet conf
+      ini_file:
+        path: /etc/puppetlabs/puppet/puppet.conf
+        section: agent
+        option: server
+        value: puppetserver.com
+        mode: '0644'
+        backup: yes
+    - name: Change environment in puppet conf
+      ini_file:
+        path: /etc/puppetlabs/puppet/puppet.conf
+        section: agent
+        option: environment
+        value: production
+        mode: '0644'
+    - name: Add ssl dir to puppet conf
+      ini_file:
+        path: /etc/puppetlabs/puppet/puppet.conf
+        section: agent
+        option: ssldir
+        value: /etc/foo/ssl
+        mode: '0644'
+    - name: Add crl checking to false
+      ini_file:
+        path: /etc/puppetlabs/puppet/puppet.conf
+        section: agent
+        option: certificate_revocation
+        value: 'false'
+        mode: '0644'
+
+    - name: Remove ca server setting
+      ini_file:
+        path: /etc/puppetlabs/puppet/puppet.conf
+        section: main
+        option: ca_server
+        state: absent
+
+- name: Start puppet service
+  hosts: all
+  gather_facts: False
+  become: yes
+  tasks:
+    - name: Start puppet service
+      service:
+        name: puppet
+        state: started
