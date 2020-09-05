@@ -66,7 +66,7 @@
   hosts: all
   gather_facts: False
   vars:
-    path: "/etc/barracuda/ssl"
+    path: "/etc/foo/ssl"
   become: yes
   tasks:
     - name: Copy private key
