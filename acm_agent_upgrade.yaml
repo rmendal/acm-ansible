@@ -150,7 +150,7 @@
   tasks:
     - name: Add Puppet 6 Repo
       yum_repository:
-        name: artifactory-bnco-centos-7-puppet6
+        name: artifactory-repo
         description: Puppet 6 Artifactory repo
         baseurl: URL-to-repo
         gpgkey: URL-to-repo-GPG
