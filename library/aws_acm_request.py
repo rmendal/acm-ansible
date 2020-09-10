@@ -2,7 +2,16 @@
 # -*- coding: utf-8 -*-
 
 # Copyright: (c) 2020, Robert Mendal <rmendal@gmail.com>
-# GNU General Public License v3.0+ (see COPYING or https://www.gnu.org/licenses/gpl-3.0.txt)
+# GNU General Public License v3.0+ (see COPYING or
+# https://www.gnu.org/licenses/gpl-3.0.txt)
+
+from ansible.module_utils.basic import AnsibleModule
+from ansible.module_utils.aws.core import AnsibleAWSModule
+from time import sleep
+import boto3
+from string import hexdigits
+from random import sample
+from os.path import exists
 
 ANSIBLE_METADATA = {
     'metadata_version': '1.1',
@@ -68,14 +77,6 @@ changed:
     returned: always
 '''
 
-from ansible.module_utils.basic import AnsibleModule
-from ansible.module_utils.aws.core import AnsibleAWSModule
-from time import sleep
-import boto3
-from string import hexdigits
-from random import sample
-from os.path import exists
-
 try:
     from botocore.exceptions import ClientError, ParamValidationError
 except ImportError:
@@ -134,7 +135,7 @@ def cert(module):
             )
             break
         except Exception as e:
-            i=i+1
+            i = i+1
             if i == 5:
                 raise e
             sleep(5)
@@ -148,16 +149,16 @@ def cert(module):
     # The associated playbook deals with the files
     DomainName = params.get('DomainName')
 
-    with open (f'{DomainName}.key', 'x') as f:
+    with open(f'{DomainName}.key', 'x') as f:
         write_priv_key = f.write(key)
 
-    with open (f'{DomainName}.pem', 'x') as f:
+    with open(f'{DomainName}.pem', 'x') as f:
         write_certificate = f.write(certificate)
 
-    with open (f'{DomainName}-ca.pem', 'x') as f:
+    with open(f'{DomainName}-ca.pem', 'x') as f:
         write_chain = f.write(chain)
 
-    with open (f'{DomainName}-pass.txt', 'x') as f:
+    with open(f'{DomainName}-pass.txt', 'x') as f:
         write_pass = f.write(pass_phrase.decode('utf-8'))
 
     # If the files were created successfully seed the result dict
