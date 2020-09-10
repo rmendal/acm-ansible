@@ -56,9 +56,9 @@ EXAMPLES = '''
 - name: Request the certs
     aws_acm_request:
       Domain_Name: "foo.bar.baz.fizzbuzz.com"
-      AWS_SECRET_ACCESS_KEY: "redacted"
+      AWS_SECRET_ACCESS_KEY: "AWX variable"
       AWS_DEFAULT_REGION: "us-west-2"
-      AWS_ACCESS_KEY_ID: "redacted"
+      AWS_ACCESS_KEY_ID: "AWX variable"
 '''
 
 RETURN = '''
